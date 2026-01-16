@@ -304,7 +304,7 @@ const Login = ({ onLogin }) => {
 // COMPONENTE: PANEL TRABAJADOR
 // ============================================
 const PanelTrabajador = ({ usuario, onLogout }) => {
-  const [fichaje, setFichaje] = useState(null);
+  const [registro, setRegistro] = useState(null);
   const [ubicaciones, setUbicaciones] = useState([]);
   const [ubicacionActual, setUbicacionActual] = useState(null);
   const [gpsStatus, setGpsStatus] = useState('obteniendo');
@@ -321,16 +321,16 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
   const cargarDatos = async () => {
     // Cargar ubicaciones permitidas
     const { data: ubis } = await supabase.from('ubicaciones').select('*');
-    if (ubis) setUbicaciones(ubis.filter((u) => u.activa));
+    if (ubis) setUbicaciones(ubis.filter((u) => u.activa !== false));
 
-    // Cargar fichaje de hoy
+    // Cargar registro de hoy
     const hoy = new Date().toISOString().split('T')[0];
-    const { data: fichajes } = await supabase.from('fichajes').select('*');
-    if (fichajes) {
-      const fichajeHoy = fichajes.find(
-        (f) => f.usuario_id === usuario.id && f.fecha === hoy
+    const { data: registros } = await supabase.from('registros').select('*');
+    if (registros) {
+      const registroHoy = registros.find(
+        (r) => r.usuario_id === usuario.id && r.fecha === hoy
       );
-      if (fichajeHoy) setFichaje(fichajeHoy);
+      if (registroHoy) setRegistro(registroHoy);
     }
   };
 
@@ -362,8 +362,8 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
       const distancia = calcularDistancia(
         coords.lat,
         coords.lng,
-        parseFloat(ubi.latitud),
-        parseFloat(ubi.longitud)
+        parseFloat(ubi.lat),
+        parseFloat(ubi.lng)
       );
       if (distancia <= ubi.radio) {
         return ubi;
@@ -392,6 +392,10 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
     }
   }, [coords, ubicaciones]);
 
+  const generarId = () => {
+    return 'reg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  };
+
   const fichar = async (tipo) => {
     setError('');
     setMensaje('');
@@ -413,53 +417,63 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
     }
 
     const ahora = new Date();
-    const hora = ahora.toTimeString().split(' ')[0].substring(0, 5);
+    const horaISO = ahora.toISOString();
+    const horaLocal = ahora.toTimeString().split(' ')[0].substring(0, 5);
     const hoy = ahora.toISOString().split('T')[0];
-    const ubicacionTexto = `${ubicacionActual.nombre} (${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)})`;
 
     try {
-      if (!fichaje) {
-        // Crear nuevo fichaje
-        const nuevoFichaje = {
+      if (!registro) {
+        // Crear nuevo registro
+        const nuevoRegistro = {
+          id: generarId(),
           usuario_id: usuario.id,
           fecha: hoy,
-          entrada: tipo === 'entrada' ? hora : null,
-          ubicacion_entrada: tipo === 'entrada' ? ubicacionTexto : null,
+          entrada: tipo === 'entrada' ? horaISO : null,
+          ubicacion: ubicacionActual.nombre,
+          coordenadas_lat: coords.lat,
+          coordenadas_lng: coords.lng,
         };
-        const { data, error: err } = await supabase.from('fichajes').insert([nuevoFichaje]);
+        const { data, error: err } = await supabase.from('registros').insert([nuevoRegistro]);
         if (err) throw err;
-        setFichaje(data[0]);
-        setMensaje(`✅ Entrada registrada a las ${hora}`);
+        setRegistro(data[0] || nuevoRegistro);
+        setMensaje(`✅ Entrada registrada a las ${horaLocal}`);
       } else {
-        // Actualizar fichaje existente
+        // Actualizar registro existente
         let updates = {};
-        if (tipo === 'salida_comida' && !fichaje.salida_comida) {
-          updates = { salida_comida: hora, ubicacion_salida_comida: ubicacionTexto };
-        } else if (tipo === 'entrada_comida' && fichaje.salida_comida && !fichaje.entrada_comida) {
-          updates = { entrada_comida: hora, ubicacion_entrada_comida: ubicacionTexto };
-        } else if (tipo === 'salida' && !fichaje.salida) {
-          updates = { salida: hora, ubicacion_salida: ubicacionTexto };
+        if (tipo === 'salida_comida' && !registro.salida_comida) {
+          updates = { salida_comida: horaISO };
+        } else if (tipo === 'entrada_comida' && registro.salida_comida && !registro.entrada_comida) {
+          updates = { entrada_comida: horaISO };
+        } else if (tipo === 'salida' && !registro.salida_tarde) {
+          updates = { salida_tarde: horaISO };
         } else {
           setError('Este fichaje ya está registrado');
           setLoading(false);
           return;
         }
 
-        const { data, error: err } = await (await supabase.from('fichajes').update(updates)).eq('id', fichaje.id);
+        const { data, error: err } = await (await supabase.from('registros').update(updates)).eq('id', registro.id);
         if (err) throw err;
-        setFichaje({ ...fichaje, ...updates });
+        setRegistro({ ...registro, ...updates });
         
         const mensajes = {
-          salida_comida: `✅ Salida comida registrada a las ${hora}`,
-          entrada_comida: `✅ Entrada comida registrada a las ${hora}`,
-          salida: `✅ Salida registrada a las ${hora}`,
+          salida_comida: `✅ Salida comida registrada a las ${horaLocal}`,
+          entrada_comida: `✅ Entrada comida registrada a las ${horaLocal}`,
+          salida: `✅ Salida registrada a las ${horaLocal}`,
         };
         setMensaje(mensajes[tipo]);
       }
     } catch (err) {
+      console.error(err);
       setError('Error al registrar el fichaje');
     }
     setLoading(false);
+  };
+
+  const formatHora = (isoString) => {
+    if (!isoString) return null;
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   };
 
   const getBtnStyle = (tipo, habilitado, completado) => {
@@ -476,10 +490,10 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
     };
   };
 
-  const entradaHecha = fichaje?.entrada;
-  const salidaComidaHecha = fichaje?.salida_comida;
-  const entradaComidaHecha = fichaje?.entrada_comida;
-  const salidaHecha = fichaje?.salida;
+  const entradaHecha = registro?.entrada;
+  const salidaComidaHecha = registro?.salida_comida;
+  const entradaComidaHecha = registro?.entrada_comida;
+  const salidaHecha = registro?.salida_tarde;
 
   return (
     <div style={styles.container}>
@@ -540,7 +554,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
               onClick={() => fichar('entrada')}
               disabled={entradaHecha || !ubicacionActual || loading}
             >
-              🌅 Entrada {entradaHecha && `(${fichaje.entrada})`}
+              🌅 Entrada {entradaHecha && `(${formatHora(registro.entrada)})`}
             </button>
 
             <button
@@ -548,7 +562,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
               onClick={() => fichar('salida_comida')}
               disabled={!entradaHecha || salidaComidaHecha || !ubicacionActual || loading}
             >
-              🍽️ Salida comida {salidaComidaHecha && `(${fichaje.salida_comida})`}
+              🍽️ Salida comida {salidaComidaHecha && `(${formatHora(registro.salida_comida)})`}
             </button>
 
             <button
@@ -556,7 +570,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
               onClick={() => fichar('entrada_comida')}
               disabled={!salidaComidaHecha || entradaComidaHecha || !ubicacionActual || loading}
             >
-              🍽️ Entrada comida {entradaComidaHecha && `(${fichaje.entrada_comida})`}
+              🍽️ Entrada comida {entradaComidaHecha && `(${formatHora(registro.entrada_comida)})`}
             </button>
 
             <button
@@ -564,7 +578,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
               onClick={() => fichar('salida')}
               disabled={!entradaComidaHecha || salidaHecha || !ubicacionActual || loading}
             >
-              🌙 Salida {salidaHecha && `(${fichaje.salida})`}
+              🌙 Salida {salidaHecha && `(${formatHora(registro.salida_tarde)})`}
             </button>
           </div>
 
@@ -584,7 +598,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
 // ============================================
 const PanelAdmin = ({ usuario, onLogout }) => {
   const [tab, setTab] = useState('fichajes');
-  const [fichajes, setFichajes] = useState([]);
+  const [registros, setRegistros] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [ubicaciones, setUbicaciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -599,13 +613,13 @@ const PanelAdmin = ({ usuario, onLogout }) => {
 
   const cargarDatos = async () => {
     setLoading(true);
-    const [resFichajes, resUsuarios, resUbicaciones] = await Promise.all([
-      supabase.from('fichajes').select('*'),
+    const [resRegistros, resUsuarios, resUbicaciones] = await Promise.all([
+      supabase.from('registros').select('*'),
       supabase.from('usuarios').select('*'),
       supabase.from('ubicaciones').select('*'),
     ]);
     
-    if (resFichajes.data) setFichajes(resFichajes.data);
+    if (resRegistros.data) setRegistros(resRegistros.data);
     if (resUsuarios.data) setUsuarios(resUsuarios.data);
     if (resUbicaciones.data) setUbicaciones(resUbicaciones.data);
     setLoading(false);
@@ -616,21 +630,27 @@ const PanelAdmin = ({ usuario, onLogout }) => {
     return u ? u.nombre : 'Desconocido';
   };
 
-  const fichajesFiltrados = fichajes.filter((f) => {
-    if (filtroFecha && f.fecha !== filtroFecha) return false;
-    if (filtroUsuario && f.usuario_id !== parseInt(filtroUsuario)) return false;
+  const registrosFiltrados = registros.filter((r) => {
+    if (filtroFecha && r.fecha !== filtroFecha) return false;
+    if (filtroUsuario && r.usuario_id !== filtroUsuario) return false;
     return true;
   }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
-  const calcularHoras = (f) => {
-    if (!f.entrada || !f.salida) return '-';
-    const entrada = new Date(`2000-01-01T${f.entrada}`);
-    const salida = new Date(`2000-01-01T${f.salida}`);
+  const formatHora = (isoString) => {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const calcularHoras = (r) => {
+    if (!r.entrada || !r.salida_tarde) return '-';
+    const entrada = new Date(r.entrada);
+    const salida = new Date(r.salida_tarde);
     let minutos = (salida - entrada) / 60000;
     
-    if (f.salida_comida && f.entrada_comida) {
-      const salidaComida = new Date(`2000-01-01T${f.salida_comida}`);
-      const entradaComida = new Date(`2000-01-01T${f.entrada_comida}`);
+    if (r.salida_comida && r.entrada_comida) {
+      const salidaComida = new Date(r.salida_comida);
+      const entradaComida = new Date(r.entrada_comida);
       minutos -= (entradaComida - salidaComida) / 60000;
     }
     
@@ -695,7 +715,7 @@ const PanelAdmin = ({ usuario, onLogout }) => {
                 </button>
               </div>
 
-              {fichajesFiltrados.length === 0 ? (
+              {registrosFiltrados.length === 0 ? (
                 <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
                   No hay fichajes para mostrar
                 </p>
@@ -707,29 +727,31 @@ const PanelAdmin = ({ usuario, onLogout }) => {
                         <th style={styles.th}>Técnico</th>
                         <th style={styles.th}>Fecha</th>
                         <th style={styles.th}>Entrada</th>
-                        <th style={styles.th}>Salida comida</th>
-                        <th style={styles.th}>Entrada comida</th>
+                        <th style={styles.th}>Sal. comida</th>
+                        <th style={styles.th}>Ent. comida</th>
                         <th style={styles.th}>Salida</th>
                         <th style={styles.th}>Horas</th>
+                        <th style={styles.th}>Ubicación</th>
                         <th style={styles.th}>Estado</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {fichajesFiltrados.map((f) => (
-                        <tr key={f.id}>
-                          <td style={styles.td}>{getNombreUsuario(f.usuario_id)}</td>
-                          <td style={styles.td}>{f.fecha}</td>
-                          <td style={styles.td}>{f.entrada || '-'}</td>
-                          <td style={styles.td}>{f.salida_comida || '-'}</td>
-                          <td style={styles.td}>{f.entrada_comida || '-'}</td>
-                          <td style={styles.td}>{f.salida || '-'}</td>
-                          <td style={styles.td}>{calcularHoras(f)}</td>
+                      {registrosFiltrados.map((r) => (
+                        <tr key={r.id}>
+                          <td style={styles.td}>{getNombreUsuario(r.usuario_id)}</td>
+                          <td style={styles.td}>{r.fecha}</td>
+                          <td style={styles.td}>{formatHora(r.entrada)}</td>
+                          <td style={styles.td}>{formatHora(r.salida_comida)}</td>
+                          <td style={styles.td}>{formatHora(r.entrada_comida)}</td>
+                          <td style={styles.td}>{formatHora(r.salida_tarde)}</td>
+                          <td style={styles.td}>{calcularHoras(r)}</td>
+                          <td style={styles.td}>{r.ubicacion || '-'}</td>
                           <td style={styles.td}>
                             <span style={{
                               ...styles.badge,
-                              ...(f.salida ? styles.badgeSuccess : f.entrada ? styles.badgeWarning : styles.badgePending),
+                              ...(r.salida_tarde ? styles.badgeSuccess : r.entrada ? styles.badgeWarning : styles.badgePending),
                             }}>
-                              {f.salida ? 'Completo' : f.entrada ? 'En curso' : 'Pendiente'}
+                              {r.salida_tarde ? 'Completo' : r.entrada ? 'En curso' : 'Pendiente'}
                             </span>
                           </td>
                         </tr>
@@ -765,25 +787,25 @@ const PanelAdmin = ({ usuario, onLogout }) => {
                     {ubicaciones.map((u) => (
                       <tr key={u.id}>
                         <td style={styles.td}>{u.nombre}</td>
-                        <td style={styles.td}>{u.latitud}, {u.longitud}</td>
+                        <td style={styles.td}>{u.lat}, {u.lng}</td>
                         <td style={styles.td}>{u.radio}m</td>
                         <td style={styles.td}>
                           <span style={{
                             ...styles.badge,
-                            ...(u.activa ? styles.badgeSuccess : styles.badgePending),
+                            ...(u.activa !== false ? styles.badgeSuccess : styles.badgePending),
                           }}>
-                            {u.activa ? 'Activa' : 'Inactiva'}
+                            {u.activa !== false ? 'Activa' : 'Inactiva'}
                           </span>
                         </td>
                         <td style={styles.td}>
                           <button
                             onClick={async () => {
-                              await (await supabase.from('ubicaciones').update({ activa: !u.activa })).eq('id', u.id);
+                              await (await supabase.from('ubicaciones').update({ activa: u.activa === false })).eq('id', u.id);
                               cargarDatos();
                             }}
                             style={{ ...styles.buttonSecondary, width: 'auto', padding: '5px 10px', fontSize: '12px' }}
                           >
-                            {u.activa ? 'Desactivar' : 'Activar'}
+                            {u.activa !== false ? 'Desactivar' : 'Activar'}
                           </button>
                         </td>
                       </tr>
@@ -844,8 +866,8 @@ const PanelAdmin = ({ usuario, onLogout }) => {
 const NuevaUbicacion = ({ onCreated }) => {
   const [mostrar, setMostrar] = useState(false);
   const [nombre, setNombre] = useState('');
-  const [latitud, setLatitud] = useState('');
-  const [longitud, setLongitud] = useState('');
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
   const [radio, setRadio] = useState('200');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -854,8 +876,8 @@ const NuevaUbicacion = ({ onCreated }) => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          setLatitud(pos.coords.latitude.toFixed(8));
-          setLongitud(pos.coords.longitude.toFixed(8));
+          setLat(pos.coords.latitude.toFixed(8));
+          setLng(pos.coords.longitude.toFixed(8));
         },
         () => setError('No se pudo obtener la ubicación')
       );
@@ -863,7 +885,7 @@ const NuevaUbicacion = ({ onCreated }) => {
   };
 
   const guardar = async () => {
-    if (!nombre || !latitud || !longitud) {
+    if (!nombre || !lat || !lng) {
       setError('Completa todos los campos');
       return;
     }
@@ -872,8 +894,8 @@ const NuevaUbicacion = ({ onCreated }) => {
     
     const { error: err } = await supabase.from('ubicaciones').insert([{
       nombre,
-      latitud: parseFloat(latitud),
-      longitud: parseFloat(longitud),
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
       radio: parseInt(radio),
       activa: true,
     }]);
@@ -882,8 +904,8 @@ const NuevaUbicacion = ({ onCreated }) => {
       setError('Error al guardar');
     } else {
       setNombre('');
-      setLatitud('');
-      setLongitud('');
+      setLat('');
+      setLng('');
       setRadio('200');
       setMostrar(false);
       onCreated();
@@ -915,14 +937,14 @@ const NuevaUbicacion = ({ onCreated }) => {
         <input
           style={{ ...styles.input, flex: 1 }}
           placeholder="Latitud"
-          value={latitud}
-          onChange={(e) => setLatitud(e.target.value)}
+          value={lat}
+          onChange={(e) => setLat(e.target.value)}
         />
         <input
           style={{ ...styles.input, flex: 1 }}
           placeholder="Longitud"
-          value={longitud}
-          onChange={(e) => setLongitud(e.target.value)}
+          value={lng}
+          onChange={(e) => setLng(e.target.value)}
         />
       </div>
       
@@ -961,6 +983,10 @@ const NuevoUsuario = ({ onCreated }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const generarId = () => {
+    return 'usr_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  };
+
   const guardar = async () => {
     if (!nombre || !pin) {
       setError('Completa todos los campos');
@@ -974,6 +1000,7 @@ const NuevoUsuario = ({ onCreated }) => {
     setError('');
     
     const { error: err } = await supabase.from('usuarios').insert([{
+      id: generarId(),
       nombre,
       pin,
       rol,
@@ -1059,7 +1086,11 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem('fichaje_usuario');
     if (saved) {
-      setUsuario(JSON.parse(saved));
+      try {
+        setUsuario(JSON.parse(saved));
+      } catch (e) {
+        localStorage.removeItem('fichaje_usuario');
+      }
     }
   }, []);
 
