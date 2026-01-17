@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 // ============================================
 // CONFIGURACIÓN DE SUPABASE
 // ============================================
-const SUPABASE_URL = 'https://ewvgrtalxwrssfyuopmc.supabase.co';
+const SUPABASE_URL = 'https://bjztcgvbkmgjfbrqvpsr.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3dmdydGFseHdyc3NmeXVvcG1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0ODAyMDgsImV4cCI6MjA4NDA1NjIwOH0.wANHY-m4Dn4e2qxJgliF9zalf8BQx9KEsLOzqWxq5Lg';
 
 // ============================================
