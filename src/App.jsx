@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 // CONFIGURACIÓN DE SUPABASE
 // ============================================
 const SUPABASE_URL = 'https://bjztcgvbkmgjfbrqvpsr.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3dmdydGFseHdyc3NmeXVvcG1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0ODAyMDgsImV4cCI6MjA4NDA1NjIwOH0.wANHY-m4Dn4e2qxJgliF9zalf8BQx9KEsLOzqWxq5Lg';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqenRjZ3Zia21namZicnF2cHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0OTMxMzEsImV4cCI6MjA4NDA2OTEzMX0.QCnrWvIxy2nlxxdkhPeF3cvi7iqBLEtYsDDggezrJN0';
 
 // ============================================
 // HELPER PARA SUPABASE
