@@ -608,7 +608,7 @@ const TecnicoPanel = ({ usuario, onLogout }) => {
           for (const ubic of ubicaciones) {
             const distancia = calcularDistancia(
               latitude, longitude,
-              parseFloat(ubic.latitud), parseFloat(ubic.longitud)
+              parseFloat(ubic.lat), parseFloat(ubic.lng)
             );
             if (distancia <= ubic.radio) {
               enUbicacion = true;
@@ -810,8 +810,8 @@ const AdminPanel = ({ usuario, onLogout }) => {
   // Nueva ubicación - CAMPOS CORREGIDOS
   const [nuevaUbicacion, setNuevaUbicacion] = useState({
     nombre: '',
-    latitud: '',
-    longitud: '',
+    lat: '',
+    lng: '',
     radio: 200
   });
 
@@ -862,9 +862,8 @@ const AdminPanel = ({ usuario, onLogout }) => {
     return true;
   });
 
-  // ========== FUNCIÓN CORREGIDA PARA AÑADIR UBICACIÓN ==========
   const agregarUbicacion = async () => {
-    const { nombre, latitud, longitud, radio } = nuevaUbicacion;
+    const { nombre, lat: latStr, lng: lngStr, radio } = nuevaUbicacion;
     
     // Validación
     if (!nombre.trim()) {
@@ -872,16 +871,16 @@ const AdminPanel = ({ usuario, onLogout }) => {
       return;
     }
     
-    if (!latitud || !longitud) {
+    if (!latStr || !lngStr) {
       setMensaje({ tipo: 'error', texto: 'Introduce las coordenadas (latitud y longitud)' });
       return;
     }
 
-    const lat = parseFloat(latitud);
-    const lng = parseFloat(longitud);
+    const lat = parseFloat(latStr);
+    const lng = parseFloat(lngStr);
 
     if (isNaN(lat) || isNaN(lng)) {
-      setMensaje({ tipo: 'error', texto: 'Las coordenadas deben ser números válidos' });
+      setMensaje({ tipo: 'error', texto: 'Las coordenadas deben ser números válidos (usa punto, no coma)' });
       return;
     }
 
@@ -896,20 +895,19 @@ const AdminPanel = ({ usuario, onLogout }) => {
     }
 
     try {
-      // Enviar con los nombres de campo CORRECTOS de la base de datos
+      // Enviar con los nombres de campo CORRECTOS de la base de datos (lat/lng)
       await supabaseRequest('ubicaciones', {
         method: 'POST',
         body: JSON.stringify({
           nombre: nombre.trim(),
-          latitud: lat,
-          longitud: lng,
+          lat: lat,
+          lng: lng,
           radio: parseInt(radio) || 200,
-          activa: true,
         }),
       });
       
       setMensaje({ tipo: 'success', texto: `✓ Ubicación "${nombre}" añadida correctamente` });
-      setNuevaUbicacion({ nombre: '', latitud: '', longitud: '', radio: 200 });
+      setNuevaUbicacion({ nombre: '', lat: '', lng: '', radio: 200 });
       cargarDatos();
     } catch (err) {
       console.error('Error añadiendo ubicación:', err);
@@ -1134,8 +1132,8 @@ const AdminPanel = ({ usuario, onLogout }) => {
                   inputMode="decimal"
                   placeholder="Ej: 42.3439"
                   style={styles.input}
-                  value={nuevaUbicacion.latitud}
-                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, latitud: e.target.value })}
+                  value={nuevaUbicacion.lat}
+                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, lat: e.target.value })}
                 />
               </div>
               <div style={styles.formGroup}>
@@ -1145,8 +1143,8 @@ const AdminPanel = ({ usuario, onLogout }) => {
                   inputMode="decimal"
                   placeholder="Ej: -3.6969"
                   style={styles.input}
-                  value={nuevaUbicacion.longitud}
-                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, longitud: e.target.value })}
+                  value={nuevaUbicacion.lng}
+                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, lng: e.target.value })}
                 />
               </div>
             </div>
@@ -1187,7 +1185,7 @@ const AdminPanel = ({ usuario, onLogout }) => {
                   <div>
                     <strong style={{ color: '#1e293b' }}>{u.nombre}</strong>
                     <div style={{ fontSize: '13px', color: '#64748b' }}>
-                      📍 {u.latitud}, {u.longitud} • Radio: {u.radio}m
+                      📍 {u.lat}, {u.lng} • Radio: {u.radio}m
                       {u.activa === false && <span style={{ color: '#ef4444' }}> (inactiva)</span>}
                     </div>
                   </div>
