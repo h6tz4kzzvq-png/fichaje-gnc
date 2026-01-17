@@ -598,8 +598,8 @@ const TecnicoPanel = ({ usuario, onLogout }) => {
     if (navigator.geolocation) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          const { latitude, longitude } = pos.coords;
-          setUbicacionActual({ lat: latitude, lng: longitude });
+          const { lat, lng } = pos.coords;
+          setUbicacionActual({ lat: lat, lng: lng });
 
           // Verificar si está en alguna ubicación autorizada
           let enUbicacion = false;
@@ -607,7 +607,7 @@ const TecnicoPanel = ({ usuario, onLogout }) => {
 
           for (const ubic of ubicaciones) {
             const distancia = calcularDistancia(
-              latitude, longitude,
+              lat, lng,
               parseFloat(ubic.lat), parseFloat(ubic.lng)
             );
             if (distancia <= ubic.radio) {
