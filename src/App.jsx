@@ -6,220 +6,447 @@ import React, { useState, useEffect } from 'react';
 const SUPABASE_URL = 'https://ewvgrtalxwrssfyuopmc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3dmdydGFseHdyc3NmeXVvcG1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0ODAyMDgsImV4cCI6MjA4NDA1NjIwOH0.wANHY-m4Dn4e2qxJgliF9zalf8BQx9KEsLOzqWxq5Lg';
 
-// Helper para llamadas a Supabase
-const supabase = {
-  from: (table) => ({
-    select: async (columns = '*') => {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=${columns}`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-        },
-      });
-      const data = await res.json();
-      return { data, error: res.ok ? null : data };
-    },
-    insert: async (rows) => {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation',
-        },
-        body: JSON.stringify(rows),
-      });
-      const data = await res.json();
-      return { data, error: res.ok ? null : data };
-    },
-    update: async (updates) => ({
-      eq: async (column, value) => {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${column}=eq.${value}`, {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=representation',
-          },
-          body: JSON.stringify(updates),
-        });
-        const data = await res.json();
-        return { data, error: res.ok ? null : data };
-      },
-    }),
-    delete: async () => ({
-      eq: async (column, value) => {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${column}=eq.${value}`, {
-          method: 'DELETE',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-          },
-        });
-        return { error: res.ok ? null : 'Error al eliminar' };
-      },
-    }),
-  }),
+// ============================================
+// HELPER PARA SUPABASE
+// ============================================
+const supabaseRequest = async (endpoint, options = {}) => {
+  const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  
+  if (options.method === 'POST') {
+    headers['Prefer'] = 'return=representation';
+  }
+  
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...headers, ...options.headers },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Supabase error:', response.status, errorText);
+    throw new Error(`Error ${response.status}: ${errorText}`);
+  }
+  
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+};
+
+// ============================================
+// UTILIDADES
+// ============================================
+const formatTime = (timeStr) => {
+  if (!timeStr) return '--:--';
+  return timeStr.substring(0, 5);
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+const calcularHoras = (registro) => {
+  if (!registro) return { trabajadas: 0, extras: 0 };
+  
+  const parseTime = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+  
+  const entrada = parseTime(registro.entrada);
+  const salidaComida = parseTime(registro.salida_comida);
+  const entradaComida = parseTime(registro.entrada_comida);
+  const salida = parseTime(registro.salida_tarde);
+  
+  let minutosTrabajados = 0;
+  
+  if (entrada && salidaComida) {
+    minutosTrabajados += salidaComida - entrada;
+  }
+  if (entradaComida && salida) {
+    minutosTrabajados += salida - entradaComida;
+  }
+  
+  const horasTrabajadas = minutosTrabajados / 60;
+  const horasExtras = Math.max(0, horasTrabajadas - 8);
+  
+  return { trabajadas: horasTrabajadas, extras: horasExtras };
+};
+
+const calcularDistancia = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
+};
+
+// ============================================
+// ICONOS
+// ============================================
+const Icons = {
+  Sun: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+      <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+  ),
+  Coffee: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+      <line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>
+    </svg>
+  ),
+  Utensils: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>
+    </svg>
+  ),
+  Moon: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  ),
+  MapPin: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+    </svg>
+  ),
+  Check: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  ),
+  X: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  ),
+  LogOut: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+    </svg>
+  ),
+  Users: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  Calendar: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+      <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  ),
+  BarChart: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>
+    </svg>
+  ),
+  Plus: () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  ),
+  Trash: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </svg>
+  ),
+  Download: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+  ),
 };
 
 // ============================================
 // ESTILOS
 // ============================================
 const styles = {
-  container: {
+  app: {
     minHeight: '100vh',
-    background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    background: 'linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%)',
+    fontFamily: "'Segoe UI', system-ui, sans-serif",
+  },
+  container: {
+    maxWidth: '500px',
+    margin: '0 auto',
+    padding: '20px',
+  },
+  header: {
+    textAlign: 'center',
+    padding: '30px 20px',
+    color: 'white',
+  },
+  logo: {
+    fontSize: '28px',
+    fontWeight: '700',
+    marginBottom: '5px',
+    letterSpacing: '-0.5px',
+  },
+  subtitle: {
+    fontSize: '14px',
+    opacity: 0.7,
   },
   card: {
-    background: 'rgba(255,255,255,0.1)',
-    backdropFilter: 'blur(10px)',
-    borderRadius: '20px',
-    padding: '30px',
-    margin: '20px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+    background: 'white',
+    borderRadius: '16px',
+    padding: '24px',
+    marginBottom: '16px',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
   },
   input: {
     width: '100%',
-    padding: '15px',
+    padding: '14px 16px',
+    border: '2px solid #e2e8f0',
     borderRadius: '10px',
-    border: '2px solid rgba(255,255,255,0.2)',
-    background: 'rgba(255,255,255,0.1)',
-    color: 'white',
     fontSize: '16px',
-    marginBottom: '15px',
+    marginBottom: '12px',
     boxSizing: 'border-box',
+    transition: 'border-color 0.2s',
+    outline: 'none',
   },
   button: {
     width: '100%',
-    padding: '15px',
-    borderRadius: '10px',
+    padding: '14px',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+    color: 'white',
     border: 'none',
-    background: 'linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%)',
-    color: '#1e3a5f',
-    fontSize: '18px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    marginTop: '10px',
-  },
-  buttonSecondary: {
-    width: '100%',
-    padding: '12px',
     borderRadius: '10px',
-    border: '2px solid rgba(255,255,255,0.3)',
-    background: 'transparent',
-    color: 'white',
     fontSize: '16px',
+    fontWeight: '600',
     cursor: 'pointer',
-    marginTop: '10px',
+    transition: 'transform 0.1s, box-shadow 0.2s',
   },
-  title: {
-    color: 'white',
+  buttonDisabled: {
+    background: '#94a3b8',
+    cursor: 'not-allowed',
+  },
+  fichajeGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '12px',
+    marginBottom: '20px',
+  },
+  fichajeCard: {
+    background: '#f8fafc',
+    borderRadius: '12px',
+    padding: '16px',
     textAlign: 'center',
+  },
+  fichajeIcon: {
+    color: '#2563eb',
+    marginBottom: '8px',
+  },
+  fichajeLabel: {
+    fontSize: '12px',
+    color: '#64748b',
+    marginBottom: '4px',
+  },
+  fichajeTime: {
+    fontSize: '20px',
+    fontWeight: '700',
+    color: '#1e293b',
     marginBottom: '10px',
-  },
-  subtitle: {
-    color: 'rgba(255,255,255,0.7)',
-    textAlign: 'center',
-    marginBottom: '30px',
-  },
-  error: {
-    background: 'rgba(255,100,100,0.2)',
-    border: '1px solid rgba(255,100,100,0.5)',
-    color: '#ff6b6b',
-    padding: '15px',
-    borderRadius: '10px',
-    marginBottom: '15px',
-    textAlign: 'center',
-  },
-  success: {
-    background: 'rgba(100,255,100,0.2)',
-    border: '1px solid rgba(100,255,100,0.5)',
-    color: '#6bff6b',
-    padding: '15px',
-    borderRadius: '10px',
-    marginBottom: '15px',
-    textAlign: 'center',
   },
   fichajeBtn: {
-    padding: '20px',
-    borderRadius: '15px',
+    padding: '8px 16px',
+    background: '#2563eb',
+    color: 'white',
     border: 'none',
-    fontSize: '16px',
-    fontWeight: 'bold',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: '600',
     cursor: 'pointer',
-    marginBottom: '10px',
-    width: '100%',
+  },
+  ubicacionBadge: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: '8px',
+    padding: '12px',
+    borderRadius: '10px',
+    fontSize: '14px',
+    fontWeight: '500',
+    marginBottom: '20px',
+  },
+  ubicacionOk: {
+    background: '#dcfce7',
+    color: '#166534',
+  },
+  ubicacionError: {
+    background: '#fee2e2',
+    color: '#991b1b',
+  },
+  summaryCard: {
+    background: '#f0f9ff',
+    borderRadius: '12px',
+    padding: '16px',
+  },
+  summaryTitle: {
+    fontSize: '14px',
+    color: '#0369a1',
+    marginBottom: '12px',
+    fontWeight: '600',
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '12px',
+  },
+  summaryItem: {
+    textAlign: 'center',
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    color: '#64748b',
+    display: 'block',
+  },
+  summaryValue: {
+    fontSize: '24px',
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  // Admin styles
+  adminHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '20px',
+    color: 'white',
+  },
+  adminTitle: {
+    fontSize: '20px',
+    fontWeight: '700',
+  },
+  logoutBtn: {
+    background: 'rgba(255,255,255,0.15)',
+    color: 'white',
+    border: 'none',
+    padding: '8px 16px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  tabs: {
+    display: 'flex',
+    gap: '8px',
+    padding: '0 20px',
+    marginBottom: '20px',
+    overflowX: 'auto',
+  },
+  tab: {
+    padding: '10px 16px',
+    background: 'rgba(255,255,255,0.1)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '500',
+    whiteSpace: 'nowrap',
+  },
+  tabActive: {
+    background: 'white',
+    color: '#1e3a5f',
+  },
+  adminContent: {
+    padding: '0 20px 20px',
+  },
+  filterRow: {
+    display: 'flex',
     gap: '10px',
+    marginBottom: '16px',
+    flexWrap: 'wrap',
+  },
+  filterInput: {
+    flex: 1,
+    minWidth: '140px',
+    padding: '10px 12px',
+    border: '2px solid #e2e8f0',
+    borderRadius: '8px',
+    fontSize: '14px',
   },
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    marginTop: '20px',
+    fontSize: '14px',
   },
   th: {
-    background: 'rgba(255,255,255,0.1)',
-    color: 'white',
-    padding: '12px',
     textAlign: 'left',
-    borderBottom: '2px solid rgba(255,255,255,0.2)',
+    padding: '12px 8px',
+    borderBottom: '2px solid #e2e8f0',
+    color: '#64748b',
+    fontWeight: '600',
+    fontSize: '12px',
   },
   td: {
-    color: 'white',
-    padding: '12px',
-    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    padding: '12px 8px',
+    borderBottom: '1px solid #f1f5f9',
   },
-  tab: {
-    flex: 1,
-    padding: '12px',
-    border: 'none',
-    background: 'transparent',
-    color: 'rgba(255,255,255,0.5)',
-    cursor: 'pointer',
-    borderBottom: '3px solid transparent',
+  message: {
+    padding: '12px 16px',
+    borderRadius: '8px',
+    marginBottom: '16px',
     fontSize: '14px',
   },
-  tabActive: {
-    flex: 1,
-    padding: '12px',
-    border: 'none',
-    background: 'transparent',
-    color: 'white',
-    cursor: 'pointer',
-    borderBottom: '3px solid #00d4ff',
+  messageSuccess: {
+    background: '#dcfce7',
+    color: '#166534',
+  },
+  messageError: {
+    background: '#fee2e2',
+    color: '#991b1b',
+  },
+  formGroup: {
+    marginBottom: '16px',
+  },
+  formLabel: {
+    display: 'block',
     fontSize: '14px',
-    fontWeight: 'bold',
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: '6px',
   },
-  badge: {
-    padding: '4px 12px',
-    borderRadius: '20px',
-    fontSize: '12px',
-    fontWeight: 'bold',
+  ubicacionItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px',
+    background: '#f8fafc',
+    borderRadius: '8px',
+    marginBottom: '8px',
   },
-  badgeSuccess: {
-    background: 'rgba(100,255,100,0.2)',
-    color: '#6bff6b',
-  },
-  badgeWarning: {
-    background: 'rgba(255,200,100,0.2)',
-    color: '#ffc864',
-  },
-  badgePending: {
-    background: 'rgba(255,255,255,0.2)',
-    color: 'rgba(255,255,255,0.7)',
-  },
-  badgeAdmin: {
-    background: 'rgba(255,100,100,0.2)',
-    color: '#ff6b6b',
-  },
-  badgeTecnico: {
-    background: 'rgba(100,200,255,0.2)',
-    color: '#64c8ff',
+  deleteBtn: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    border: 'none',
+    padding: '6px 10px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '13px',
   },
 };
 
@@ -227,73 +454,97 @@ const styles = {
 // COMPONENTE: LOGIN
 // ============================================
 const Login = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
+  const [usuarios, setUsuarios] = useState([]);
+  const [selectedUser, setSelectedUser] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [cargando, setCargando] = useState(true);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  useEffect(() => {
+    const cargarUsuarios = async () => {
+      try {
+        const data = await supabaseRequest('usuarios?select=id,nombre,rol');
+        setUsuarios(data || []);
+      } catch (err) {
+        console.error('Error cargando usuarios:', err);
+        setError('Error de conexión');
+      }
+      setCargando(false);
+    };
+    cargarUsuarios();
+  }, []);
+
+  const handleLogin = async () => {
+    if (!selectedUser || !pin) {
+      setError('Selecciona usuario e introduce PIN');
+      return;
+    }
 
     try {
-      const { data, error: err } = await supabase.from('usuarios').select('*');
-      
-      if (err) {
-        setError('Error de conexión. Inténtalo de nuevo.');
-        setLoading(false);
-        return;
-      }
-
-      const user = data.find(
-        (u) => u.nombre.toLowerCase() === username.toLowerCase() && u.pin === pin
-      );
-
-      if (user) {
-        onLogin(user);
+      const data = await supabaseRequest(`usuarios?id=eq.${selectedUser}&pin=eq.${pin}&select=*`);
+      if (data && data.length > 0) {
+        onLogin(data[0]);
       } else {
-        setError('Usuario o PIN incorrectos');
+        setError('PIN incorrecto');
       }
     } catch (err) {
-      setError('Error de conexión. Inténtalo de nuevo.');
+      setError('Error de conexión');
     }
-    setLoading(false);
   };
 
-  return (
-    <div style={styles.container}>
-      <div style={{ maxWidth: '400px', margin: '0 auto', paddingTop: '50px' }}>
-        <div style={styles.card}>
-          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <div style={{ fontSize: '60px', marginBottom: '10px' }}>⏱️</div>
-            <h1 style={styles.title}>Control de Fichaje</h1>
-            <p style={styles.subtitle}>GNC Hipatia</p>
+  if (cargando) {
+    return (
+      <div style={styles.app}>
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={styles.logo}>⏱️ Control Viajes</div>
+            <div style={styles.subtitle}>Cargando...</div>
           </div>
+        </div>
+      </div>
+    );
+  }
 
-          {error && <div style={styles.error}>{error}</div>}
+  return (
+    <div style={styles.app}>
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.logo}>⏱️ Control Viajes</div>
+          <div style={styles.subtitle}>GNC Hipatia</div>
+        </div>
 
-          <form onSubmit={handleSubmit}>
-            <input
-              style={styles.input}
-              type="text"
-              placeholder="Usuario"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-            <input
-              style={styles.input}
-              type="password"
-              placeholder="PIN"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              required
-            />
-            <button style={styles.button} type="submit" disabled={loading}>
-              {loading ? 'Conectando...' : 'Entrar'}
-            </button>
-          </form>
+        <div style={styles.card}>
+          <select
+            style={styles.input}
+            value={selectedUser}
+            onChange={(e) => setSelectedUser(e.target.value)}
+          >
+            <option value="">Selecciona tu nombre</option>
+            {usuarios.map((u) => (
+              <option key={u.id} value={u.id}>{u.nombre}</option>
+            ))}
+          </select>
+
+          <input
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="PIN"
+            style={styles.input}
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+          />
+
+          {error && (
+            <div style={{ ...styles.message, ...styles.messageError }}>
+              {error}
+            </div>
+          )}
+
+          <button style={styles.button} onClick={handleLogin}>
+            Entrar
+          </button>
         </div>
       </div>
     </div>
@@ -301,292 +552,240 @@ const Login = ({ onLogin }) => {
 };
 
 // ============================================
-// COMPONENTE: PANEL TRABAJADOR
+// COMPONENTE: PANEL TÉCNICO
 // ============================================
-const PanelTrabajador = ({ usuario, onLogout }) => {
-  const [registro, setRegistro] = useState(null);
+const TecnicoPanel = ({ usuario, onLogout }) => {
+  const [registroHoy, setRegistroHoy] = useState(null);
   const [ubicaciones, setUbicaciones] = useState([]);
   const [ubicacionActual, setUbicacionActual] = useState(null);
-  const [gpsStatus, setGpsStatus] = useState('obteniendo');
-  const [mensaje, setMensaje] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [coords, setCoords] = useState(null);
+  const [ubicacionValida, setUbicacionValida] = useState(false);
+  const [ubicacionNombre, setUbicacionNombre] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [fichando, setFichando] = useState(false);
+  const [horaActual, setHoraActual] = useState(new Date());
 
+  const hoy = new Date().toISOString().split('T')[0];
+
+  // Reloj
   useEffect(() => {
-    cargarDatos();
-    obtenerUbicacion();
+    const interval = setInterval(() => setHoraActual(new Date()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  const cargarDatos = async () => {
-    // Cargar ubicaciones permitidas
-    const { data: ubis } = await supabase.from('ubicaciones').select('*');
-    if (ubis) setUbicaciones(ubis.filter((u) => u.activa !== false));
-
-    // Cargar registro de hoy
-    const hoy = new Date().toISOString().split('T')[0];
-    const { data: registros } = await supabase.from('registros').select('*');
-    if (registros) {
-      const registroHoy = registros.find(
-        (r) => r.usuario_id === usuario.id && r.fecha === hoy
-      );
-      if (registroHoy) setRegistro(registroHoy);
-    }
-  };
-
-  const obtenerUbicacion = () => {
-    if (!navigator.geolocation) {
-      setGpsStatus('no-soportado');
-      return;
-    }
-
-    setGpsStatus('obteniendo');
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setCoords({ lat: latitude, lng: longitude });
-        setGpsStatus('obtenido');
-      },
-      (err) => {
-        setGpsStatus('error');
-        setError('No se pudo obtener tu ubicación. Activa el GPS.');
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  const verificarUbicacion = () => {
-    if (!coords || ubicaciones.length === 0) return null;
-
-    for (const ubi of ubicaciones) {
-      const distancia = calcularDistancia(
-        coords.lat,
-        coords.lng,
-        parseFloat(ubi.lat),
-        parseFloat(ubi.lng)
-      );
-      if (distancia <= ubi.radio) {
-        return ubi;
-      }
-    }
-    return null;
-  };
-
-  const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3;
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
+  // Cargar datos
   useEffect(() => {
-    if (coords && ubicaciones.length > 0) {
-      const ubi = verificarUbicacion();
-      setUbicacionActual(ubi);
-    }
-  }, [coords, ubicaciones]);
+    const cargarDatos = async () => {
+      try {
+        // Cargar registro de hoy
+        const registros = await supabaseRequest(
+          `registros?usuario_id=eq.${usuario.id}&fecha=eq.${hoy}&select=*`
+        );
+        setRegistroHoy(registros?.[0] || null);
 
-  const generarId = () => {
-    return 'reg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-  };
+        // Cargar ubicaciones
+        const ubics = await supabaseRequest('ubicaciones?activa=eq.true&select=*');
+        setUbicaciones(ubics || []);
+      } catch (err) {
+        console.error('Error cargando datos:', err);
+      }
+      setCargando(false);
+    };
+    cargarDatos();
+  }, [usuario.id, hoy]);
+
+  // Geolocalización
+  useEffect(() => {
+    if (navigator.geolocation) {
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          setUbicacionActual({ lat: latitude, lng: longitude });
+
+          // Verificar si está en alguna ubicación autorizada
+          let enUbicacion = false;
+          let nombreUbicacion = '';
+
+          for (const ubic of ubicaciones) {
+            const distancia = calcularDistancia(
+              latitude, longitude,
+              parseFloat(ubic.latitud), parseFloat(ubic.longitud)
+            );
+            if (distancia <= ubic.radio) {
+              enUbicacion = true;
+              nombreUbicacion = ubic.nombre;
+              break;
+            }
+          }
+
+          setUbicacionValida(enUbicacion);
+          setUbicacionNombre(nombreUbicacion);
+        },
+        (err) => {
+          console.error('Error GPS:', err);
+          setUbicacionValida(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      );
+
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+  }, [ubicaciones]);
 
   const fichar = async (tipo) => {
-    setError('');
-    setMensaje('');
-    setLoading(true);
+    if (!ubicacionValida || fichando) return;
 
-    // Verificar GPS
-    if (gpsStatus !== 'obtenido') {
-      setError('Esperando ubicación GPS...');
-      setLoading(false);
-      obtenerUbicacion();
-      return;
-    }
-
-    // Verificar que está en ubicación permitida
-    if (!ubicacionActual) {
-      setError('No estás en una ubicación de trabajo autorizada');
-      setLoading(false);
-      return;
-    }
-
+    setFichando(true);
     const ahora = new Date();
-    const horaISO = ahora.toISOString();
-    const horaLocal = ahora.toTimeString().split(' ')[0].substring(0, 5);
-    const hoy = ahora.toISOString().split('T')[0];
+    const hora = ahora.toTimeString().substring(0, 8);
 
     try {
-      if (!registro) {
+      if (!registroHoy) {
         // Crear nuevo registro
         const nuevoRegistro = {
-          id: generarId(),
           usuario_id: usuario.id,
           fecha: hoy,
-          entrada: tipo === 'entrada' ? horaISO : null,
-          ubicacion: ubicacionActual.nombre,
-          coordenadas_lat: coords.lat,
-          coordenadas_lng: coords.lng,
+          [tipo]: hora,
+          [`ubicacion_${tipo}`]: ubicacionNombre,
         };
-        const { data, error: err } = await supabase.from('registros').insert([nuevoRegistro]);
-        if (err) throw err;
-        setRegistro(data[0] || nuevoRegistro);
-        setMensaje(`✅ Entrada registrada a las ${horaLocal}`);
+        const data = await supabaseRequest('registros', {
+          method: 'POST',
+          body: JSON.stringify(nuevoRegistro),
+        });
+        setRegistroHoy(data?.[0]);
       } else {
         // Actualizar registro existente
-        let updates = {};
-        if (tipo === 'salida_comida' && !registro.salida_comida) {
-          updates = { salida_comida: horaISO };
-        } else if (tipo === 'entrada_comida' && registro.salida_comida && !registro.entrada_comida) {
-          updates = { entrada_comida: horaISO };
-        } else if (tipo === 'salida' && !registro.salida_tarde) {
-          updates = { salida_tarde: horaISO };
-        } else {
-          setError('Este fichaje ya está registrado');
-          setLoading(false);
-          return;
-        }
-
-        const { data, error: err } = await (await supabase.from('registros').update(updates)).eq('id', registro.id);
-        if (err) throw err;
-        setRegistro({ ...registro, ...updates });
-        
-        const mensajes = {
-          salida_comida: `✅ Salida comida registrada a las ${horaLocal}`,
-          entrada_comida: `✅ Entrada comida registrada a las ${horaLocal}`,
-          salida: `✅ Salida registrada a las ${horaLocal}`,
-        };
-        setMensaje(mensajes[tipo]);
+        await supabaseRequest(`registros?id=eq.${registroHoy.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            [tipo]: hora,
+            [`ubicacion_${tipo}`]: ubicacionNombre,
+          }),
+        });
+        setRegistroHoy({ ...registroHoy, [tipo]: hora });
       }
     } catch (err) {
-      console.error(err);
-      setError('Error al registrar el fichaje');
+      console.error('Error fichando:', err);
+      alert('Error al fichar. Inténtalo de nuevo.');
     }
-    setLoading(false);
+
+    setFichando(false);
   };
 
-  const formatHora = (isoString) => {
-    if (!isoString) return null;
-    const date = new Date(isoString);
-    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-  };
+  const { trabajadas, extras } = calcularHoras(registroHoy);
 
-  const getBtnStyle = (tipo, habilitado, completado) => {
-    let bg = '#4a5568';
-    if (completado) bg = '#48bb78';
-    else if (habilitado) bg = tipo === 'entrada' || tipo === 'entrada_comida' ? '#4299e1' : '#ed8936';
-    
-    return {
-      ...styles.fichajeBtn,
-      background: bg,
-      color: 'white',
-      opacity: habilitado && !completado ? 1 : 0.6,
-      cursor: habilitado && !completado ? 'pointer' : 'not-allowed',
-    };
-  };
-
-  const entradaHecha = registro?.entrada;
-  const salidaComidaHecha = registro?.salida_comida;
-  const entradaComidaHecha = registro?.entrada_comida;
-  const salidaHecha = registro?.salida_tarde;
+  if (cargando) {
+    return (
+      <div style={styles.app}>
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={styles.logo}>⏱️ Control Viajes</div>
+            <div style={styles.subtitle}>Cargando...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={styles.container}>
-      <div style={{ maxWidth: '500px', margin: '0 auto', padding: '20px' }}>
+    <div style={styles.app}>
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.logo}>
+            {horaActual.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+          <div style={styles.subtitle}>
+            {horaActual.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </div>
+        </div>
+
         <div style={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <div>
-              <h2 style={{ color: 'white', margin: 0 }}>👤 {usuario.nombre}</h2>
-              <p style={{ color: 'rgba(255,255,255,0.6)', margin: '5px 0 0 0', fontSize: '14px' }}>
-                {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
+              <div style={{ fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>{usuario.nombre}</div>
+              <div style={{ fontSize: '13px', color: '#64748b' }}>Técnico</div>
             </div>
-            <button onClick={onLogout} style={{ ...styles.buttonSecondary, width: 'auto', padding: '8px 15px' }}>
-              Salir
+            <button onClick={onLogout} style={{ ...styles.logoutBtn, background: '#f1f5f9', color: '#64748b' }}>
+              <Icons.LogOut />
             </button>
           </div>
 
-          {/* Estado GPS */}
           <div style={{
-            padding: '15px',
-            borderRadius: '10px',
-            marginBottom: '20px',
-            background: ubicacionActual ? 'rgba(72,187,120,0.2)' : gpsStatus === 'error' ? 'rgba(245,101,101,0.2)' : 'rgba(255,255,255,0.1)',
+            ...styles.ubicacionBadge,
+            ...(ubicacionValida ? styles.ubicacionOk : styles.ubicacionError)
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '24px' }}>
-                {gpsStatus === 'obteniendo' ? '🔄' : ubicacionActual ? '📍' : '⚠️'}
-              </span>
-              <div>
-                <div style={{ color: 'white', fontWeight: 'bold' }}>
-                  {gpsStatus === 'obteniendo' ? 'Obteniendo ubicación...' :
-                   ubicacionActual ? ubicacionActual.nombre : 'Fuera de zona autorizada'}
-                </div>
-                {coords && (
-                  <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>
-                    {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
-                  </div>
-                )}
+            <Icons.MapPin />
+            {ubicacionValida ? `📍 ${ubicacionNombre}` : '⚠️ Fuera de zona autorizada'}
+          </div>
+
+          <div style={styles.fichajeGrid}>
+            <div style={styles.fichajeCard}>
+              <div style={styles.fichajeIcon}><Icons.Sun /></div>
+              <div style={styles.fichajeLabel}>Entrada</div>
+              <div style={styles.fichajeTime}>{formatTime(registroHoy?.entrada)}</div>
+              <button
+                style={{ ...styles.fichajeBtn, opacity: registroHoy?.entrada || !ubicacionValida ? 0.5 : 1 }}
+                onClick={() => fichar('entrada')}
+                disabled={registroHoy?.entrada || !ubicacionValida || fichando}
+              >
+                {registroHoy?.entrada ? '✓' : 'Fichar'}
+              </button>
+            </div>
+
+            <div style={styles.fichajeCard}>
+              <div style={styles.fichajeIcon}><Icons.Coffee /></div>
+              <div style={styles.fichajeLabel}>Salida comida</div>
+              <div style={styles.fichajeTime}>{formatTime(registroHoy?.salida_comida)}</div>
+              <button
+                style={{ ...styles.fichajeBtn, opacity: registroHoy?.salida_comida || !registroHoy?.entrada || !ubicacionValida ? 0.5 : 1 }}
+                onClick={() => fichar('salida_comida')}
+                disabled={registroHoy?.salida_comida || !registroHoy?.entrada || !ubicacionValida || fichando}
+              >
+                {registroHoy?.salida_comida ? '✓' : 'Fichar'}
+              </button>
+            </div>
+
+            <div style={styles.fichajeCard}>
+              <div style={styles.fichajeIcon}><Icons.Utensils /></div>
+              <div style={styles.fichajeLabel}>Vuelta comida</div>
+              <div style={styles.fichajeTime}>{formatTime(registroHoy?.entrada_comida)}</div>
+              <button
+                style={{ ...styles.fichajeBtn, opacity: registroHoy?.entrada_comida || !registroHoy?.salida_comida || !ubicacionValida ? 0.5 : 1 }}
+                onClick={() => fichar('entrada_comida')}
+                disabled={registroHoy?.entrada_comida || !registroHoy?.salida_comida || !ubicacionValida || fichando}
+              >
+                {registroHoy?.entrada_comida ? '✓' : 'Fichar'}
+              </button>
+            </div>
+
+            <div style={styles.fichajeCard}>
+              <div style={styles.fichajeIcon}><Icons.Moon /></div>
+              <div style={styles.fichajeLabel}>Salida tarde</div>
+              <div style={styles.fichajeTime}>{formatTime(registroHoy?.salida_tarde)}</div>
+              <button
+                style={{ ...styles.fichajeBtn, opacity: registroHoy?.salida_tarde || !registroHoy?.entrada_comida || !ubicacionValida ? 0.5 : 1 }}
+                onClick={() => fichar('salida_tarde')}
+                disabled={registroHoy?.salida_tarde || !registroHoy?.entrada_comida || !ubicacionValida || fichando}
+              >
+                {registroHoy?.salida_tarde ? '✓' : 'Fichar'}
+              </button>
+            </div>
+          </div>
+
+          <div style={styles.summaryCard}>
+            <h3 style={styles.summaryTitle}>Resumen del día</h3>
+            <div style={styles.summaryGrid}>
+              <div style={styles.summaryItem}>
+                <span style={styles.summaryLabel}>Horas trabajadas</span>
+                <span style={styles.summaryValue}>{trabajadas.toFixed(1)}h</span>
+              </div>
+              <div style={styles.summaryItem}>
+                <span style={styles.summaryLabel}>Horas extras</span>
+                <span style={{ ...styles.summaryValue, color: extras > 0 ? '#f59e0b' : '#6b7280' }}>
+                  {extras.toFixed(1)}h
+                </span>
               </div>
             </div>
-            {gpsStatus !== 'obteniendo' && (
-              <button 
-                onClick={obtenerUbicacion} 
-                style={{ ...styles.buttonSecondary, marginTop: '10px', fontSize: '14px' }}
-              >
-                🔄 Actualizar ubicación
-              </button>
-            )}
           </div>
-
-          {error && <div style={styles.error}>{error}</div>}
-          {mensaje && <div style={styles.success}>{mensaje}</div>}
-
-          {/* Botones de fichaje */}
-          <div>
-            <button
-              style={getBtnStyle('entrada', !entradaHecha && ubicacionActual, entradaHecha)}
-              onClick={() => fichar('entrada')}
-              disabled={entradaHecha || !ubicacionActual || loading}
-            >
-              🌅 Entrada {entradaHecha && `(${formatHora(registro.entrada)})`}
-            </button>
-
-            <button
-              style={getBtnStyle('salida_comida', entradaHecha && !salidaComidaHecha && ubicacionActual, salidaComidaHecha)}
-              onClick={() => fichar('salida_comida')}
-              disabled={!entradaHecha || salidaComidaHecha || !ubicacionActual || loading}
-            >
-              🍽️ Salida comida {salidaComidaHecha && `(${formatHora(registro.salida_comida)})`}
-            </button>
-
-            <button
-              style={getBtnStyle('entrada_comida', salidaComidaHecha && !entradaComidaHecha && ubicacionActual, entradaComidaHecha)}
-              onClick={() => fichar('entrada_comida')}
-              disabled={!salidaComidaHecha || entradaComidaHecha || !ubicacionActual || loading}
-            >
-              🍽️ Entrada comida {entradaComidaHecha && `(${formatHora(registro.entrada_comida)})`}
-            </button>
-
-            <button
-              style={getBtnStyle('salida', entradaComidaHecha && !salidaHecha && ubicacionActual, salidaHecha)}
-              onClick={() => fichar('salida')}
-              disabled={!entradaComidaHecha || salidaHecha || !ubicacionActual || loading}
-            >
-              🌙 Salida {salidaHecha && `(${formatHora(registro.salida_tarde)})`}
-            </button>
-          </div>
-
-          {salidaHecha && (
-            <div style={{ ...styles.success, marginTop: '20px' }}>
-              ✅ Jornada completada
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -594,474 +793,523 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
 };
 
 // ============================================
-// COMPONENTE: PANEL ADMIN
+// COMPONENTE: PANEL ADMINISTRADOR
 // ============================================
-const PanelAdmin = ({ usuario, onLogout }) => {
-  const [tab, setTab] = useState('fichajes');
-  const [registros, setRegistros] = useState([]);
+const AdminPanel = ({ usuario, onLogout }) => {
+  const [vista, setVista] = useState('registros');
   const [usuarios, setUsuarios] = useState([]);
+  const [registros, setRegistros] = useState([]);
   const [ubicaciones, setUbicaciones] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [cargando, setCargando] = useState(true);
+  const [mensaje, setMensaje] = useState(null);
 
   // Filtros
-  const [filtroFecha, setFiltroFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [filtroFecha, setFiltroFecha] = useState('');
   const [filtroUsuario, setFiltroUsuario] = useState('');
+
+  // Nueva ubicación - CAMPOS CORREGIDOS
+  const [nuevaUbicacion, setNuevaUbicacion] = useState({
+    nombre: '',
+    latitud: '',
+    longitud: '',
+    radio: 200
+  });
+
+  // Nuevo usuario
+  const [nuevoUsuario, setNuevoUsuario] = useState({
+    nombre: '',
+    pin: '',
+    rol: 'tecnico'
+  });
+
+  const cargarDatos = async () => {
+    try {
+      const [usrs, regs, ubics] = await Promise.all([
+        supabaseRequest('usuarios?select=*'),
+        supabaseRequest('registros?select=*&order=fecha.desc,created_at.desc'),
+        supabaseRequest('ubicaciones?select=*'),
+      ]);
+      setUsuarios(usrs || []);
+      setRegistros(regs || []);
+      setUbicaciones(ubics || []);
+    } catch (err) {
+      console.error('Error cargando datos:', err);
+      setMensaje({ tipo: 'error', texto: 'Error cargando datos' });
+    }
+    setCargando(false);
+  };
 
   useEffect(() => {
     cargarDatos();
   }, []);
 
-  const cargarDatos = async () => {
-    setLoading(true);
-    const [resRegistros, resUsuarios, resUbicaciones] = await Promise.all([
-      supabase.from('registros').select('*'),
-      supabase.from('usuarios').select('*'),
-      supabase.from('ubicaciones').select('*'),
-    ]);
-    
-    if (resRegistros.data) setRegistros(resRegistros.data);
-    if (resUsuarios.data) setUsuarios(resUsuarios.data);
-    if (resUbicaciones.data) setUbicaciones(resUbicaciones.data);
-    setLoading(false);
-  };
+  // Auto-limpiar mensajes
+  useEffect(() => {
+    if (mensaje) {
+      const timer = setTimeout(() => setMensaje(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [mensaje]);
 
   const getNombreUsuario = (id) => {
-    const u = usuarios.find((u) => u.id === id);
+    const u = usuarios.find(u => u.id === id);
     return u ? u.nombre : 'Desconocido';
   };
 
-  const registrosFiltrados = registros.filter((r) => {
+  const registrosFiltrados = registros.filter(r => {
     if (filtroFecha && r.fecha !== filtroFecha) return false;
-    if (filtroUsuario && r.usuario_id !== filtroUsuario) return false;
+    if (filtroUsuario && r.usuario_id !== parseInt(filtroUsuario)) return false;
     return true;
-  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  });
 
-  const formatHora = (isoString) => {
-    if (!isoString) return '-';
-    const date = new Date(isoString);
-    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const calcularHoras = (r) => {
-    if (!r.entrada || !r.salida_tarde) return '-';
-    const entrada = new Date(r.entrada);
-    const salida = new Date(r.salida_tarde);
-    let minutos = (salida - entrada) / 60000;
+  // ========== FUNCIÓN CORREGIDA PARA AÑADIR UBICACIÓN ==========
+  const agregarUbicacion = async () => {
+    const { nombre, latitud, longitud, radio } = nuevaUbicacion;
     
-    if (r.salida_comida && r.entrada_comida) {
-      const salidaComida = new Date(r.salida_comida);
-      const entradaComida = new Date(r.entrada_comida);
-      minutos -= (entradaComida - salidaComida) / 60000;
+    // Validación
+    if (!nombre.trim()) {
+      setMensaje({ tipo: 'error', texto: 'Introduce un nombre para la ubicación' });
+      return;
     }
     
-    const horas = Math.floor(minutos / 60);
-    const mins = Math.round(minutos % 60);
-    return `${horas}h ${mins}m`;
+    if (!latitud || !longitud) {
+      setMensaje({ tipo: 'error', texto: 'Introduce las coordenadas (latitud y longitud)' });
+      return;
+    }
+
+    const lat = parseFloat(latitud);
+    const lng = parseFloat(longitud);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      setMensaje({ tipo: 'error', texto: 'Las coordenadas deben ser números válidos' });
+      return;
+    }
+
+    if (lat < -90 || lat > 90) {
+      setMensaje({ tipo: 'error', texto: 'La latitud debe estar entre -90 y 90' });
+      return;
+    }
+
+    if (lng < -180 || lng > 180) {
+      setMensaje({ tipo: 'error', texto: 'La longitud debe estar entre -180 y 180' });
+      return;
+    }
+
+    try {
+      // Enviar con los nombres de campo CORRECTOS de la base de datos
+      // NO enviamos 'activa' porque usa el valor por defecto de la BD
+      await supabaseRequest('ubicaciones', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre: nombre.trim(),
+          latitud: lat,
+          longitud: lng,
+          radio: parseInt(radio) || 200,
+        }),
+      });
+      
+      setMensaje({ tipo: 'success', texto: `✓ Ubicación "${nombre}" añadida correctamente` });
+      setNuevaUbicacion({ nombre: '', latitud: '', longitud: '', radio: 200 });
+      cargarDatos();
+    } catch (err) {
+      console.error('Error añadiendo ubicación:', err);
+      setMensaje({ tipo: 'error', texto: 'Error al añadir ubicación: ' + err.message });
+    }
   };
 
-  return (
-    <div style={styles.container}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-        <div style={styles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h2 style={{ color: 'white', margin: 0 }}>🔧 Panel de Administración</h2>
-              <p style={{ color: 'rgba(255,255,255,0.6)', margin: '5px 0 0 0' }}>
-                {usuario.nombre}
-              </p>
-            </div>
-            <button onClick={onLogout} style={{ ...styles.buttonSecondary, width: 'auto', padding: '8px 15px' }}>
-              Salir
-            </button>
+  const eliminarUbicacion = async (id, nombre) => {
+    if (!window.confirm(`¿Eliminar la ubicación "${nombre}"?`)) return;
+
+    try {
+      await supabaseRequest(`ubicaciones?id=eq.${id}`, {
+        method: 'DELETE',
+      });
+      setMensaje({ tipo: 'success', texto: 'Ubicación eliminada' });
+      cargarDatos();
+    } catch (err) {
+      setMensaje({ tipo: 'error', texto: 'Error al eliminar ubicación' });
+    }
+  };
+
+  const agregarUsuario = async () => {
+    const { nombre, pin, rol } = nuevoUsuario;
+    
+    if (!nombre.trim() || !pin.trim()) {
+      setMensaje({ tipo: 'error', texto: 'Completa nombre y PIN' });
+      return;
+    }
+
+    try {
+      await supabaseRequest('usuarios', {
+        method: 'POST',
+        body: JSON.stringify({ nombre: nombre.trim(), pin: pin.trim(), rol }),
+      });
+      setMensaje({ tipo: 'success', texto: 'Usuario creado' });
+      setNuevoUsuario({ nombre: '', pin: '', rol: 'tecnico' });
+      cargarDatos();
+    } catch (err) {
+      setMensaje({ tipo: 'error', texto: 'Error al crear usuario' });
+    }
+  };
+
+  const eliminarUsuario = async (id, nombre) => {
+    if (!window.confirm(`¿Eliminar al usuario "${nombre}"?`)) return;
+
+    try {
+      await supabaseRequest(`usuarios?id=eq.${id}`, { method: 'DELETE' });
+      setMensaje({ tipo: 'success', texto: 'Usuario eliminado' });
+      cargarDatos();
+    } catch (err) {
+      setMensaje({ tipo: 'error', texto: 'Error al eliminar usuario' });
+    }
+  };
+
+  const exportarCSV = () => {
+    const headers = ['Fecha', 'Técnico', 'Entrada', 'Salida Comida', 'Vuelta Comida', 'Salida', 'Horas', 'Extras'];
+    const rows = registrosFiltrados.map(r => {
+      const { trabajadas, extras } = calcularHoras(r);
+      return [
+        r.fecha,
+        getNombreUsuario(r.usuario_id),
+        r.entrada || '',
+        r.salida_comida || '',
+        r.entrada_comida || '',
+        r.salida_tarde || '',
+        trabajadas.toFixed(1),
+        extras.toFixed(1),
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fichajes_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
+  if (cargando) {
+    return (
+      <div style={styles.app}>
+        <div style={styles.container}>
+          <div style={styles.header}>
+            <div style={styles.logo}>⚙️ Panel Admin</div>
+            <div style={styles.subtitle}>Cargando...</div>
           </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.2)', marginBottom: '20px' }}>
-            <button style={tab === 'fichajes' ? styles.tabActive : styles.tab} onClick={() => setTab('fichajes')}>
-              📋 Fichajes
-            </button>
-            <button style={tab === 'usuarios' ? styles.tabActive : styles.tab} onClick={() => setTab('usuarios')}>
-              👥 Usuarios
-            </button>
-            <button style={tab === 'ubicaciones' ? styles.tabActive : styles.tab} onClick={() => setTab('ubicaciones')}>
-              📍 Ubicaciones
-            </button>
-          </div>
-
-          {loading && <p style={{ color: 'white', textAlign: 'center' }}>Cargando...</p>}
-
-          {/* Tab Fichajes */}
-          {!loading && tab === 'fichajes' && (
-            <div>
-              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                <input
-                  type="date"
-                  value={filtroFecha}
-                  onChange={(e) => setFiltroFecha(e.target.value)}
-                  style={{ ...styles.input, width: 'auto', marginBottom: 0 }}
-                />
-                <select
-                  value={filtroUsuario}
-                  onChange={(e) => setFiltroUsuario(e.target.value)}
-                  style={{ ...styles.input, width: 'auto', marginBottom: 0 }}
-                >
-                  <option value="">Todos los usuarios</option>
-                  {usuarios.filter((u) => u.rol === 'tecnico').map((u) => (
-                    <option key={u.id} value={u.id}>{u.nombre}</option>
-                  ))}
-                </select>
-                <button onClick={cargarDatos} style={{ ...styles.buttonSecondary, width: 'auto' }}>
-                  🔄 Actualizar
-                </button>
-              </div>
-
-              {registrosFiltrados.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
-                  No hay fichajes para mostrar
-                </p>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th style={styles.th}>Técnico</th>
-                        <th style={styles.th}>Fecha</th>
-                        <th style={styles.th}>Entrada</th>
-                        <th style={styles.th}>Sal. comida</th>
-                        <th style={styles.th}>Ent. comida</th>
-                        <th style={styles.th}>Salida</th>
-                        <th style={styles.th}>Horas</th>
-                        <th style={styles.th}>Ubicación</th>
-                        <th style={styles.th}>Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {registrosFiltrados.map((r) => (
-                        <tr key={r.id}>
-                          <td style={styles.td}>{getNombreUsuario(r.usuario_id)}</td>
-                          <td style={styles.td}>{r.fecha}</td>
-                          <td style={styles.td}>{formatHora(r.entrada)}</td>
-                          <td style={styles.td}>{formatHora(r.salida_comida)}</td>
-                          <td style={styles.td}>{formatHora(r.entrada_comida)}</td>
-                          <td style={styles.td}>{formatHora(r.salida_tarde)}</td>
-                          <td style={styles.td}>{calcularHoras(r)}</td>
-                          <td style={styles.td}>{r.ubicacion || '-'}</td>
-                          <td style={styles.td}>
-                            <span style={{
-                              ...styles.badge,
-                              ...(r.salida_tarde ? styles.badgeSuccess : r.entrada ? styles.badgeWarning : styles.badgePending),
-                            }}>
-                              {r.salida_tarde ? 'Completo' : r.entrada ? 'En curso' : 'Pendiente'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tab Ubicaciones */}
-          {!loading && tab === 'ubicaciones' && (
-            <div>
-              <NuevaUbicacion onCreated={cargarDatos} />
-              
-              {ubicaciones.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
-                  No hay ubicaciones configuradas
-                </p>
-              ) : (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>Nombre</th>
-                      <th style={styles.th}>Coordenadas</th>
-                      <th style={styles.th}>Radio</th>
-                      <th style={styles.th}>Estado</th>
-                      <th style={styles.th}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ubicaciones.map((u) => (
-                      <tr key={u.id}>
-                        <td style={styles.td}>{u.nombre}</td>
-                        <td style={styles.td}>{u.lat}, {u.lng}</td>
-                        <td style={styles.td}>{u.radio}m</td>
-                        <td style={styles.td}>
-                          <span style={{
-                            ...styles.badge,
-                            ...(u.activa !== false ? styles.badgeSuccess : styles.badgePending),
-                          }}>
-                            {u.activa !== false ? 'Activa' : 'Inactiva'}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          <button
-                            onClick={async () => {
-                              await (await supabase.from('ubicaciones').update({ activa: u.activa === false })).eq('id', u.id);
-                              cargarDatos();
-                            }}
-                            style={{ ...styles.buttonSecondary, width: 'auto', padding: '5px 10px', fontSize: '12px' }}
-                          >
-                            {u.activa !== false ? 'Desactivar' : 'Activar'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-          {/* Tab Usuarios */}
-          {!loading && tab === 'usuarios' && (
-            <div>
-              <NuevoUsuario onCreated={cargarDatos} />
-              
-              {usuarios.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
-                  No hay usuarios
-                </p>
-              ) : (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>Nombre</th>
-                      <th style={styles.th}>PIN</th>
-                      <th style={styles.th}>Rol</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usuarios.map((u) => (
-                      <tr key={u.id}>
-                        <td style={styles.td}>{u.nombre}</td>
-                        <td style={styles.td}>{u.pin}</td>
-                        <td style={styles.td}>
-                          <span style={{
-                            ...styles.badge,
-                            ...(u.rol === 'admin' ? styles.badgeAdmin : styles.badgeTecnico),
-                          }}>
-                            {u.rol === 'admin' ? 'Admin' : 'Técnico'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
         </div>
       </div>
-    </div>
-  );
-};
-
-// ============================================
-// COMPONENTE: NUEVA UBICACIÓN
-// ============================================
-const NuevaUbicacion = ({ onCreated }) => {
-  const [mostrar, setMostrar] = useState(false);
-  const [nombre, setNombre] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [radio, setRadio] = useState('200');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const usarMiUbicacion = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLat(pos.coords.latitude.toFixed(8));
-          setLng(pos.coords.longitude.toFixed(8));
-        },
-        () => setError('No se pudo obtener la ubicación')
-      );
-    }
-  };
-
-  const guardar = async () => {
-    if (!nombre || !lat || !lng) {
-      setError('Completa todos los campos');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    
-    const { error: err } = await supabase.from('ubicaciones').insert([{
-      nombre,
-      lat: parseFloat(lat),
-      lng: parseFloat(lng),
-      radio: parseInt(radio),
-      activa: true,
-    }]);
-
-    if (err) {
-      setError('Error al guardar');
-    } else {
-      setNombre('');
-      setLat('');
-      setLng('');
-      setRadio('200');
-      setMostrar(false);
-      onCreated();
-    }
-    setLoading(false);
-  };
-
-  if (!mostrar) {
-    return (
-      <button onClick={() => setMostrar(true)} style={{ ...styles.button, marginBottom: '20px' }}>
-        + Nueva ubicación
-      </button>
     );
   }
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '10px', marginBottom: '20px' }}>
-      <h3 style={{ color: 'white', marginTop: 0 }}>Nueva ubicación</h3>
-      {error && <div style={styles.error}>{error}</div>}
-      
-      <input
-        style={styles.input}
-        placeholder="Nombre (ej: Cliente Munich)"
-        value={nombre}
-        onChange={(e) => setNombre(e.target.value)}
-      />
-      
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <input
-          style={{ ...styles.input, flex: 1 }}
-          placeholder="Latitud"
-          value={lat}
-          onChange={(e) => setLat(e.target.value)}
-        />
-        <input
-          style={{ ...styles.input, flex: 1 }}
-          placeholder="Longitud"
-          value={lng}
-          onChange={(e) => setLng(e.target.value)}
-        />
-      </div>
-      
-      <button onClick={usarMiUbicacion} style={{ ...styles.buttonSecondary, marginBottom: '15px' }}>
-        📍 Usar mi ubicación actual
-      </button>
-      
-      <input
-        style={styles.input}
-        type="number"
-        placeholder="Radio en metros"
-        value={radio}
-        onChange={(e) => setRadio(e.target.value)}
-      />
-      
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <button onClick={guardar} style={styles.button} disabled={loading}>
-          {loading ? 'Guardando...' : 'Guardar'}
-        </button>
-        <button onClick={() => setMostrar(false)} style={styles.buttonSecondary}>
-          Cancelar
+    <div style={styles.app}>
+      <div style={styles.adminHeader}>
+        <div style={styles.adminTitle}>⚙️ Panel Administrador</div>
+        <button onClick={onLogout} style={styles.logoutBtn}>
+          <Icons.LogOut /> Salir
         </button>
       </div>
-    </div>
-  );
-};
 
-// ============================================
-// COMPONENTE: NUEVO USUARIO
-// ============================================
-const NuevoUsuario = ({ onCreated }) => {
-  const [mostrar, setMostrar] = useState(false);
-  const [nombre, setNombre] = useState('');
-  const [pin, setPin] = useState('');
-  const [rol, setRol] = useState('tecnico');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+      <div style={styles.tabs}>
+        {[
+          { id: 'registros', label: '📋 Registros', icon: Icons.Calendar },
+          { id: 'ubicaciones', label: '📍 Ubicaciones', icon: Icons.MapPin },
+          { id: 'usuarios', label: '👥 Usuarios', icon: Icons.Users },
+          { id: 'estadisticas', label: '📊 Estadísticas', icon: Icons.BarChart },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            style={{ ...styles.tab, ...(vista === tab.id ? styles.tabActive : {}) }}
+            onClick={() => setVista(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-  const generarId = () => {
-    return 'usr_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-  };
+      <div style={styles.adminContent}>
+        {mensaje && (
+          <div style={{
+            ...styles.message,
+            ...(mensaje.tipo === 'success' ? styles.messageSuccess : styles.messageError)
+          }}>
+            {mensaje.texto}
+          </div>
+        )}
 
-  const guardar = async () => {
-    if (!nombre || !pin) {
-      setError('Completa todos los campos');
-      return;
-    }
-    if (pin.length < 4) {
-      setError('El PIN debe tener al menos 4 dígitos');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    
-    const { error: err } = await supabase.from('usuarios').insert([{
-      id: generarId(),
-      nombre,
-      pin,
-      rol,
-    }]);
+        {/* VISTA: REGISTROS */}
+        {vista === 'registros' && (
+          <div style={styles.card}>
+            <div style={styles.filterRow}>
+              <input
+                type="date"
+                style={styles.filterInput}
+                value={filtroFecha}
+                onChange={(e) => setFiltroFecha(e.target.value)}
+              />
+              <select
+                style={styles.filterInput}
+                value={filtroUsuario}
+                onChange={(e) => setFiltroUsuario(e.target.value)}
+              >
+                <option value="">Todos los técnicos</option>
+                {usuarios.filter(u => u.rol === 'tecnico').map(u => (
+                  <option key={u.id} value={u.id}>{u.nombre}</option>
+                ))}
+              </select>
+              <button
+                onClick={exportarCSV}
+                style={{ ...styles.button, width: 'auto', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Icons.Download /> CSV
+              </button>
+            </div>
 
-    if (err) {
-      setError('Error al guardar');
-    } else {
-      setNombre('');
-      setPin('');
-      setRol('tecnico');
-      setMostrar(false);
-      onCreated();
-    }
-    setLoading(false);
-  };
+            <div style={{ overflowX: 'auto' }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Fecha</th>
+                    <th style={styles.th}>Técnico</th>
+                    <th style={styles.th}>Entrada</th>
+                    <th style={styles.th}>S.Com</th>
+                    <th style={styles.th}>V.Com</th>
+                    <th style={styles.th}>Salida</th>
+                    <th style={styles.th}>Horas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {registrosFiltrados.slice(0, 50).map(r => {
+                    const { trabajadas, extras } = calcularHoras(r);
+                    return (
+                      <tr key={r.id}>
+                        <td style={styles.td}>{formatDate(r.fecha)}</td>
+                        <td style={styles.td}>{getNombreUsuario(r.usuario_id)}</td>
+                        <td style={styles.td}>{formatTime(r.entrada)}</td>
+                        <td style={styles.td}>{formatTime(r.salida_comida)}</td>
+                        <td style={styles.td}>{formatTime(r.entrada_comida)}</td>
+                        <td style={styles.td}>{formatTime(r.salida_tarde)}</td>
+                        <td style={styles.td}>
+                          <strong>{trabajadas.toFixed(1)}h</strong>
+                          {extras > 0 && <span style={{ color: '#f59e0b' }}> (+{extras.toFixed(1)})</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {registrosFiltrados.length === 0 && (
+                <p style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>
+                  No hay registros
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
-  if (!mostrar) {
-    return (
-      <button onClick={() => setMostrar(true)} style={{ ...styles.button, marginBottom: '20px' }}>
-        + Nuevo usuario
-      </button>
-    );
-  }
+        {/* VISTA: UBICACIONES */}
+        {vista === 'ubicaciones' && (
+          <div style={styles.card}>
+            <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#1e293b' }}>
+              Añadir nueva ubicación
+            </h3>
+            
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Nombre del lugar</label>
+              <input
+                type="text"
+                placeholder="Ej: Cliente Munich, Taller Burgos..."
+                style={styles.input}
+                value={nuevaUbicacion.nombre}
+                onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, nombre: e.target.value })}
+              />
+            </div>
 
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '20px', borderRadius: '10px', marginBottom: '20px' }}>
-      <h3 style={{ color: 'white', marginTop: 0 }}>Nuevo usuario</h3>
-      {error && <div style={styles.error}>{error}</div>}
-      
-      <input
-        style={styles.input}
-        placeholder="Nombre completo"
-        value={nombre}
-        onChange={(e) => setNombre(e.target.value)}
-      />
-      
-      <input
-        style={styles.input}
-        type="password"
-        placeholder="PIN (mínimo 4 dígitos)"
-        value={pin}
-        onChange={(e) => setPin(e.target.value)}
-      />
-      
-      <select
-        style={styles.input}
-        value={rol}
-        onChange={(e) => setRol(e.target.value)}
-      >
-        <option value="tecnico">Técnico</option>
-        <option value="admin">Administrador</option>
-      </select>
-      
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <button onClick={guardar} style={styles.button} disabled={loading}>
-          {loading ? 'Guardando...' : 'Guardar'}
-        </button>
-        <button onClick={() => setMostrar(false)} style={styles.buttonSecondary}>
-          Cancelar
-        </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={styles.formGroup}>
+                <label style={styles.formLabel}>Latitud</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej: 42.3439"
+                  style={styles.input}
+                  value={nuevaUbicacion.latitud}
+                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, latitud: e.target.value })}
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.formLabel}>Longitud</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ej: -3.6969"
+                  style={styles.input}
+                  value={nuevaUbicacion.longitud}
+                  onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, longitud: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Radio (metros)</label>
+              <input
+                type="number"
+                placeholder="200"
+                style={styles.input}
+                value={nuevaUbicacion.radio}
+                onChange={(e) => setNuevaUbicacion({ ...nuevaUbicacion, radio: e.target.value })}
+              />
+              <small style={{ color: '#64748b', fontSize: '12px' }}>
+                El técnico podrá fichar si está dentro de este radio desde las coordenadas
+              </small>
+            </div>
+
+            <button style={styles.button} onClick={agregarUbicacion}>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Icons.Plus /> Añadir ubicación
+              </span>
+            </button>
+
+            <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid #e2e8f0' }} />
+
+            <h3 style={{ marginBottom: '16px', color: '#1e293b' }}>
+              Ubicaciones registradas ({ubicaciones.length})
+            </h3>
+
+            {ubicaciones.length === 0 ? (
+              <p style={{ color: '#64748b', textAlign: 'center' }}>
+                No hay ubicaciones registradas
+              </p>
+            ) : (
+              ubicaciones.map(u => (
+                <div key={u.id} style={styles.ubicacionItem}>
+                  <div>
+                    <strong style={{ color: '#1e293b' }}>{u.nombre}</strong>
+                    <div style={{ fontSize: '13px', color: '#64748b' }}>
+                      📍 {u.latitud}, {u.longitud} • Radio: {u.radio}m
+                      {u.activa === false && <span style={{ color: '#ef4444' }}> (inactiva)</span>}
+                    </div>
+                  </div>
+                  <button
+                    style={styles.deleteBtn}
+                    onClick={() => eliminarUbicacion(u.id, u.nombre)}
+                  >
+                    <Icons.Trash /> Eliminar
+                  </button>
+                </div>
+              ))
+            )}
+
+            <div style={{ marginTop: '20px', padding: '12px', background: '#f0f9ff', borderRadius: '8px', fontSize: '13px', color: '#0369a1' }}>
+              <strong>💡 Cómo obtener coordenadas:</strong><br />
+              1. Abre Google Maps<br />
+              2. Haz clic derecho en el punto exacto<br />
+              3. Haz clic en las coordenadas que aparecen (se copian automáticamente)<br />
+              4. Pega primero la latitud, luego la longitud
+            </div>
+          </div>
+        )}
+
+        {/* VISTA: USUARIOS */}
+        {vista === 'usuarios' && (
+          <div style={styles.card}>
+            <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#1e293b' }}>
+              Añadir nuevo técnico
+            </h3>
+
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Nombre completo</label>
+              <input
+                type="text"
+                placeholder="Nombre del técnico"
+                style={styles.input}
+                value={nuevoUsuario.nombre}
+                onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, nombre: e.target.value })}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>PIN (4 dígitos)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="1234"
+                maxLength={4}
+                style={styles.input}
+                value={nuevoUsuario.pin}
+                onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, pin: e.target.value.replace(/\D/g, '') })}
+              />
+            </div>
+
+            <button style={styles.button} onClick={agregarUsuario}>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Icons.Plus /> Añadir técnico
+              </span>
+            </button>
+
+            <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid #e2e8f0' }} />
+
+            <h3 style={{ marginBottom: '16px', color: '#1e293b' }}>
+              Usuarios registrados ({usuarios.length})
+            </h3>
+
+            {usuarios.map(u => (
+              <div key={u.id} style={styles.ubicacionItem}>
+                <div>
+                  <strong style={{ color: '#1e293b' }}>{u.nombre}</strong>
+                  <div style={{ fontSize: '13px', color: '#64748b' }}>
+                    {u.rol === 'admin' ? '👑 Administrador' : '👷 Técnico'} • PIN: {u.pin}
+                  </div>
+                </div>
+                {u.rol !== 'admin' && (
+                  <button
+                    style={styles.deleteBtn}
+                    onClick={() => eliminarUsuario(u.id, u.nombre)}
+                  >
+                    <Icons.Trash />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* VISTA: ESTADÍSTICAS */}
+        {vista === 'estadisticas' && (
+          <div style={styles.card}>
+            <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#1e293b' }}>
+              Resumen por técnico
+            </h3>
+
+            {usuarios.filter(u => u.rol === 'tecnico').map(u => {
+              const registrosUsuario = registros.filter(r => r.usuario_id === u.id);
+              const totalHoras = registrosUsuario.reduce((acc, r) => acc + calcularHoras(r).trabajadas, 0);
+              const totalExtras = registrosUsuario.reduce((acc, r) => acc + calcularHoras(r).extras, 0);
+              const diasTrabajados = registrosUsuario.length;
+
+              return (
+                <div key={u.id} style={{ ...styles.ubicacionItem, flexDirection: 'column', alignItems: 'stretch' }}>
+                  <strong style={{ color: '#1e293b', marginBottom: '8px' }}>{u.nombre}</strong>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: '#2563eb' }}>{diasTrabajados}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Días</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: '#059669' }}>{totalHoras.toFixed(1)}h</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Horas</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: '#f59e0b' }}>{totalExtras.toFixed(1)}h</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Extras</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1070,37 +1318,26 @@ const NuevoUsuario = ({ onCreated }) => {
 // ============================================
 // COMPONENTE PRINCIPAL
 // ============================================
-export default function App() {
+const App = () => {
   const [usuario, setUsuario] = useState(null);
 
-  const handleLogin = (usr) => {
-    setUsuario(usr);
-    localStorage.setItem('fichaje_usuario', JSON.stringify(usr));
+  const handleLogin = (user) => {
+    setUsuario(user);
   };
 
   const handleLogout = () => {
     setUsuario(null);
-    localStorage.removeItem('fichaje_usuario');
   };
-
-  useEffect(() => {
-    const saved = localStorage.getItem('fichaje_usuario');
-    if (saved) {
-      try {
-        setUsuario(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem('fichaje_usuario');
-      }
-    }
-  }, []);
 
   if (!usuario) {
     return <Login onLogin={handleLogin} />;
   }
 
   if (usuario.rol === 'admin') {
-    return <PanelAdmin usuario={usuario} onLogout={handleLogout} />;
+    return <AdminPanel usuario={usuario} onLogout={handleLogout} />;
   }
 
-  return <PanelTrabajador usuario={usuario} onLogout={handleLogout} />;
-}
+  return <TecnicoPanel usuario={usuario} onLogout={handleLogout} />;
+};
+
+export default App;
