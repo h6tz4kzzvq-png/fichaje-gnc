@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react';
 // ============================================
 // CONFIGURACIÓN DE SUPABASE
 // ============================================
-const SUPABASE_URL = 'https://ewvgrtalxwrssfyuopmc.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3dmdydGFseHdyc3NmeXVvcG1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY5MzY2OTIsImV4cCI6MjA1MjUxMjY5Mn0.ZreijJKZTJ3Wvlri_3Bkyv2aBBzyFfMGH0xjEqHwddQ';
+const SUPABASE_URL = 'https://bjztcgvbkmgjfbrqvpsr.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqenRjZ3Zia21namZicnF2cHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0OTMxMzEsImV4cCI6MjA4NDA2OTEzMX0.QCnrWvIxy2nlxxdkhPeF3cvi7iqBLEtYsDDggezrJN0';
 
 const supabaseRequest = async (endpoint, options = {}) => {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${endpoint}`, {
