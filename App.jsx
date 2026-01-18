@@ -599,7 +599,7 @@ const TecnicoPanel = ({ usuario, onLogout }) => {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const { lat, lng } = pos.coords;
-          setUbicacionActual({ lat: lat, lng: lng });
+          setUbicacionActual({ latitud: lat, longitud: lng });
 
           // Verificar si está en alguna ubicación autorizada
           let enUbicacion = false;
@@ -900,8 +900,8 @@ const AdminPanel = ({ usuario, onLogout }) => {
         method: 'POST',
         body: JSON.stringify({
           nombre: nombre.trim(),
-          lat: lat,
-          lng: lng,
+          latitud: lat,
+          longitud: lng,
           radio: parseInt(radio) || 200,
         }),
       });
