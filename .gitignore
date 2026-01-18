@@ -1,0 +1,28 @@
+# Dependencias
+/node_modules
+
+# Build
+/build
+/dist
+
+# Variables de entorno - NUNCA SUBIR
+.env
+.env.local
+.env.production
+
+# Archivo con credenciales
+REFERENCIA_RAPIDA.md
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Vercel
+.vercel
+
+# Logs
+*.log
