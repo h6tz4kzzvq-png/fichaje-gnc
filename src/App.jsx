@@ -302,31 +302,33 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
       const ahora = new Date().toISOString();
       let registro = registroHoy;
 
+      // Mapear nombre de campo si es salida_tarde -> salida
+      const campoReal = tipo === 'salida_tarde' ? 'salida' : tipo;
+
       if (!registro) {
-        // Crear nuevo registro
-        const nuevoId = `reg_${Date.now()}`;
+        // Crear nuevo registro (id es auto-generado)
         const nuevoRegistro = {
-          id: nuevoId,
           fecha: hoy,
-          usuario_id: usuario.id,
-          [tipo]: ahora,
+          usuario_id: parseInt(usuario.id),
+          [campoReal]: ahora,
           ubicacion: verificacion.ubicacion,
         };
 
-        await supabaseRequest('registros', {
+        const result = await supabaseRequest('registros', {
           method: 'POST',
+          headers: { 'Prefer': 'return=representation' },
           body: JSON.stringify(nuevoRegistro),
         });
 
-        registro = nuevoRegistro;
+        registro = result[0];
       } else {
         // Actualizar registro existente
         await supabaseRequest(`registros?id=eq.${registro.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ [tipo]: ahora }),
+          body: JSON.stringify({ [campoReal]: ahora }),
         });
 
-        registro = { ...registro, [tipo]: ahora };
+        registro = { ...registro, [campoReal]: ahora };
       }
 
       setRegistroHoy(registro);
@@ -347,7 +349,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
     if (!registroHoy || !registroHoy.entrada) return { tipo: 'entrada', texto: '🟢 Entrada', color: '#22c55e' };
     if (!registroHoy.salida_comida) return { tipo: 'salida_comida', texto: '🍽️ Salir a comer', color: '#f97316' };
     if (!registroHoy.entrada_comida) return { tipo: 'entrada_comida', texto: '🍽️ Volver de comer', color: '#3b82f6' };
-    if (!registroHoy.salida_tarde) return { tipo: 'salida_tarde', texto: '🔴 Salida', color: '#ef4444' };
+    if (!registroHoy.salida) return { tipo: 'salida_tarde', texto: '🔴 Salida', color: '#ef4444' };
     return null;
   };
 
@@ -402,7 +404,7 @@ const PanelTrabajador = ({ usuario, onLogout }) => {
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px' }}>Salida</div>
-                <div style={{ color: '#ef4444', fontSize: '20px', fontWeight: 'bold' }}>{formatHora(registroHoy?.salida_tarde)}</div>
+                <div style={{ color: '#ef4444', fontSize: '20px', fontWeight: 'bold' }}>{formatHora(registroHoy?.salida)}</div>
               </div>
             </div>
           </div>
@@ -610,9 +612,9 @@ const PanelAdmin = ({ usuario, onLogout }) => {
   };
 
   const calcularHoras = (r) => {
-    if (!r.entrada || !r.salida_tarde) return '-';
+    if (!r.entrada || !r.salida) return '-';
     const entrada = new Date(r.entrada);
-    const salida = new Date(r.salida_tarde);
+    const salida = new Date(r.salida);
     let minutos = (salida - entrada) / 60000;
 
     if (r.salida_comida && r.entrada_comida) {
@@ -717,7 +719,7 @@ const PanelAdmin = ({ usuario, onLogout }) => {
                           <td style={{ ...styles.td, color: '#22c55e' }}>{formatHora(r.entrada)}</td>
                           <td style={{ ...styles.td, color: '#f97316' }}>{formatHora(r.salida_comida)}</td>
                           <td style={{ ...styles.td, color: '#3b82f6' }}>{formatHora(r.entrada_comida)}</td>
-                          <td style={{ ...styles.td, color: '#ef4444' }}>{formatHora(r.salida_tarde)}</td>
+                          <td style={{ ...styles.td, color: '#ef4444' }}>{formatHora(r.salida)}</td>
                           <td style={{ ...styles.td, fontWeight: 'bold' }}>{calcularHoras(r)}</td>
                           <td style={styles.td}>{r.ubicacion || '-'}</td>
                         </tr>
