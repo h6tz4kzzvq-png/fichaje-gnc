@@ -561,8 +561,8 @@ const PanelAdmin = ({ usuario, onLogout }) => {
         method: 'POST',
         body: JSON.stringify({
           nombre: nombre.trim(),
-          lat: parseFloat(lat),
-          lng: parseFloat(lng),
+          latitud: parseFloat(lat),
+          longitud: parseFloat(lng),
           radio: parseInt(radio) || 200,
         }),
       });
@@ -903,8 +903,8 @@ const PanelAdmin = ({ usuario, onLogout }) => {
                       return (
                         <tr key={ub.id}>
                           <td style={styles.td}>{ub.nombre}</td>
-                          <td style={styles.td}>{ub.lat}</td>
-                          <td style={styles.td}>{ub.lng}</td>
+                          <td style={styles.td}>{ub.latitud}</td>
+                          <td style={styles.td}>{ub.longitud}</td>
                           <td style={styles.td}>{ub.radio}m</td>
                           <td style={styles.td}>
                             {tecnicosAsignados.length > 0 ? (
