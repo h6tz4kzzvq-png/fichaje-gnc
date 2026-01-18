@@ -608,7 +608,7 @@ const TecnicoPanel = ({ usuario, onLogout }) => {
           for (const ubic of ubicaciones) {
             const distancia = calcularDistancia(
               lat, lng,
-              parseFloat(ubic.lat), parseFloat(ubic.lng)
+              parseFloat(ubic.latitud), parseFloat(ubic.longitud)
             );
             if (distancia <= ubic.radio) {
               enUbicacion = true;
