@@ -1,5 +1,9 @@
 # Changelog - Fichaje GNC
+## [1.0.1] - 2025-01-19
 
+### 🐛 Corregido
+- Corregida la generación de ID al crear nuevos técnicos
+- El ID ahora lo genera Supabase automáticamente (antes causaba error "invalid input syntax for type integer")
 Todos los cambios notables de este proyecto serán documentados en este archivo.
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
