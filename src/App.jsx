@@ -521,7 +521,8 @@ const PanelAdmin = ({ usuario, onLogout }) => {
     }
 
     try {
-      const id = `tec_${Date.now()}`;
+      const id = `// Dejar que Supabase genere el ID automáticamente
+// NO incluir el campo 'id' en el insert`;
       await supabaseRequest('usuarios', {
         method: 'POST',
         body: JSON.stringify({
