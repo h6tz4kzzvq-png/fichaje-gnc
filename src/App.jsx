@@ -530,7 +530,7 @@ const PanelAdmin = ({ usuario, onLogout }) => {
         }),
       });
 
-      setUsuarios([...usuarios, { id, nombre: nuevoUsuario.nombre.trim(), pin: nuevoUsuario.pin, rol: 'tecnico' }]);
+      setUsuarios([...usuarios, { id: Date.now(), nombre: nuevoUsuario.nombre.trim(), pin: nuevoUsuario.pin, rol: 'tecnico' }]);
       setNuevoUsuario({ nombre: '', pin: '' });
       alert('✅ Usuario añadido');
     } catch (err) {
